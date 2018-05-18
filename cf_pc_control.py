@@ -5,6 +5,7 @@ import time
 import termios
 import logging
 import threading
+import ujson as json
 
 import numpy as np
 import transformations as trans
@@ -45,11 +46,13 @@ class ControllerThread(threading.Thread):
     pitch_limit = (-30.0, 30.0)
     yaw_limit = (-200.0, 200.0)
     enabled = False
+    cumerr_limit = (-200, 200)
 
     def __init__(self, cf):
         super(ControllerThread, self).__init__()
         self.cf = cf
 
+        self.read_config()
         # Reset state
         self.disable(stop=False)
 
@@ -69,7 +72,8 @@ class ControllerThread(threading.Thread):
         self.attq = np.r_[0.0, 0.0, 0.0, 1.0]
         self.yawrate = 0  # derivative term
 
-        self.roll_r, self.pitch_r = 0, 0
+        self.cum_height_err = 0
+        self.roll_r, self.pitch_r, self.thrust_r = 0, 0, 0
         self.R = np.eye(3)
 
         # Attitide (roll, pitch, yaw) from stabilizer
@@ -82,6 +86,10 @@ class ControllerThread(threading.Thread):
         self.daemon = True
 
         self.t0 = time.time()  # To be updated at run()
+
+    def read_config(self):
+        with open('config.json') as config_file:
+            self.config = json.load(config_file)
 
     def _connected(self, link_uri):
         print('Connected to', link_uri)
@@ -262,19 +270,31 @@ class ControllerThread(threading.Thread):
         # Thrust - height PD controller
         # TODO Read from config file
 
-        kP = 1.2
-        kD = 0.4
+        if self.enabled:
+            self.cum_height_err += ez
+            self.cum_height_err = np.clip(
+                self.cum_height_err, *self.cumerr_limit)
+
+        kP = self.config['thrust']['kP']
+        kD = self.config['thrust']['kD']
+        kI = self.config['thrust']['kI']
+
+        mg = self.config['m'] * self.config['g']
 
         self.thrust_r = 4 * 0.147 * \
-            (kP * ez - kD * self.vel[2] + 27e-3 * 9.82) * 2**16 / \
+            (kP * ez - kD * self.vel[2] + mg + kI * self.cum_height_err) * 2**16 / \
             (np.cos(np.radians(self.stab_att[0])) *
              np.cos(np.radians(self.stab_att[1])))
 
         # Pitch and roll - PD controller.
         # Not very fast.
 
-        self.pitch_r = 4 * (kP * ex - kD * self.vel[0])
-        self.roll_r = -4 * (kP * ey - kD * self.vel[1])
+        kP = self.config['pitchroll']['kP']
+        kD = self.config['pitchroll']['kD']
+        kI = self.config['pitchroll']['kI']
+
+        self.pitch_r = 20 * (kP * ex - kD * self.vel[0])
+        self.roll_r = -20 * (kP * ey - kD * self.vel[1])
 
         # Rotational matrix.How's this different from R?
         A = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
@@ -285,7 +305,12 @@ class ControllerThread(threading.Thread):
         )
 
         # Yaw - P-controller
-        self.yawrate_r = -10 * (0.2 * eyaw - 0.02 * self.yawrate)
+
+        kP = self.config['yaw']['kP']
+        kD = self.config['yaw']['kD']
+        kI = self.config['yaw']['kI']
+
+        self.yawrate_r = -10 * (kP * eyaw - kD * self.yawrate)
 
         # Clip control signals to be within the specified range.
         self.roll_r = np.clip(self.roll_r, *self.pitch_limit)
@@ -310,7 +335,7 @@ class ControllerThread(threading.Thread):
             self.vel[1],
             self.vel[2],
             self.yawrate) +
-            'error: ({}, {}, {}, {})\n'.format(ex, ey, ez, eyaw) +
+            'error: ({}, {}, {}, {}, {})\n'.format(ex, ey, ez, eyaw, self.cum_height_err) +
             'control: ({}, {}, {}, {})\n'.format(
             self.roll_r,
             self.pitch_r,
@@ -322,6 +347,7 @@ class ControllerThread(threading.Thread):
     def print_at_period(self, period, message):
         """ Prints the message at a given period """
         if (time.time() - period) > self.last_time_print:
+            self.read_config()  # Also read config again
             self.last_time_print = time.time()
             print(message)
 
@@ -350,8 +376,10 @@ class ControllerThread(threading.Thread):
     def enable(self):
         if not self.enabled:
             print('Enabling controller')
+
         # Need to send a zero setpoint to unlock the controller.
         self.send_setpoint(0.0, 0.0, 0.0, 0)
+        self.cum_height_err = 0
         self.enabled = True
 
     def loop_sleep(self, time_start):
@@ -370,6 +398,26 @@ class ControllerThread(threading.Thread):
     def decrease_thrust(self):
         self.thrust_r -= self.thrust_step
         self.thrust_r = max(0, self.thrust_r)
+
+
+def coordinates(control):
+    """ Follow waypoints """
+
+    time.sleep(2)
+
+
+    control.enable()
+
+    time.sleep(2)
+
+    for n in range(len(control.config['coordinates']['x'])):
+        print(control.config['coordinates']['x'][n])
+
+        control.pos_ref[0] = control.config['coordinates']['x'][n]
+        control.pos_ref[1] = control.config['coordinates']['y'][n]
+        control.pos_ref[2] = control.config['coordinates']['z'][n]
+
+        time.sleep(2)
 
 
 def handle_keyboard_input(control):
@@ -465,5 +513,6 @@ if __name__ == "__main__":
     cf.open_link(URI)
 
     handle_keyboard_input(control)
+    # coordinates(control)
 
     cf.close_link()
