@@ -42,3 +42,34 @@ sudo udevadm control --reload-rules
 sudo service udev restart
 ```
 Unplug the radio and plug it in again and it should be recognized
+
+# Flying
+
+PID-controller parameters and coordinates are set in `config.json`. Coordinates can be relative (to starting position) or absolute.
+
+![orientation](https://wiki.bitcraze.io/_detail/doc:lps:crazyflie_isometric_drawing_2.png?id=doc%3Alps%3Astarting-position) 
+
+~~~~
+{
+    "radio": "radio://0/98/2M",
+    "pitchroll": {
+        "kP": 1.2, "kD": 0.8, "kI": 0
+    },
+    "thrust": {
+        "kP": 1.2, "kD": 0.4, "kI": 0.01, "C": 0.147
+    },
+    "yaw": {
+        "kP": 2, "kD": 0.2, "kI": 0
+    },
+    "m": 30e-3,
+    "g": 9.82,
+    "coordinates": {
+        "relative": true,
+        "x": [0, 0.5, -0.5, 0, 0, 0],
+        "y": [0, 0, 0, 0.5, -0.5 ],
+        "z": [0.5, 0.5, 0.5, 0.5, 0.5, 0.2],
+        "yaw": [0.0, 0, 0.0, 0.0, 0.0, 0.0]
+    },
+    "waypoint_margin": 0.05
+}
+~~~
