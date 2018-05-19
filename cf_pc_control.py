@@ -452,9 +452,9 @@ def coordinates(control):
 
         # If magniture iof error is small enough
         while (control.err_mag > control.config["waypoint_margin"]):
-            time.sleep(0.5)
+            time.sleep(0.1)
 
-        time.sleep(5)
+        time.sleep(.5)
 
     control.disable()
 
