@@ -73,6 +73,7 @@ class ControllerThread(threading.Thread):
         self.yawrate = 0  # derivative term
 
         self.cum_height_err = 0
+        self.err_mag = 0
         self.roll_r, self.pitch_r, self.thrust_r = 0, 0, 0
         self.R = np.eye(3)
 
@@ -265,6 +266,9 @@ class ControllerThread(threading.Thread):
 
         # Compute control errors in position
         ex, ey, ez = self.pos_ref - self.pos
+
+        self.err_mag = np.linalg.norm([ex, ey, ez])
+
         eyaw = np.degrees(self.yaw_ref) - self.stab_att[2]  # In degrees
 
         # Thrust - height PD controller
@@ -278,16 +282,17 @@ class ControllerThread(threading.Thread):
         kP = self.config['thrust']['kP']
         kD = self.config['thrust']['kD']
         kI = self.config['thrust']['kI']
+        C = self.config['thrust']['C']
 
         mg = self.config['m'] * self.config['g']
 
-        self.thrust_r = 4 * 0.147 * \
-            (kP * ez - kD * self.vel[2] + mg + kI * self.cum_height_err) * 2**16 / \
+        self.thrust_r = 4 * C * \
+            (kP * ez - kD * self.vel[2] + mg + kI * self.cum_height_err) *  \
+            2**16 / \
             (np.cos(np.radians(self.stab_att[0])) *
              np.cos(np.radians(self.stab_att[1])))
 
         # Pitch and roll - PD controller.
-        # Not very fast.
 
         kP = self.config['pitchroll']['kP']
         kD = self.config['pitchroll']['kD']
@@ -310,10 +315,10 @@ class ControllerThread(threading.Thread):
         kD = self.config['yaw']['kD']
         kI = self.config['yaw']['kI']
 
-        self.yawrate_r = -10 * (kP * eyaw - kD * self.yawrate)
+        self.yawrate_r = - (kP * eyaw - kD * self.yawrate)
 
         # Clip control signals to be within the specified range.
-        self.roll_r = np.clip(self.roll_r, *self.pitch_limit)
+        self.roll_r = np.clip(self.roll_r, *self.roll_limit)
         self.pitch_r = np.clip(self.pitch_r, *self.pitch_limit)
         self.yawrate_r = np.clip(self.yawrate_r, *self.yaw_limit)
         self.thrust_r = np.clip(self.thrust_r, *self.thrust_limit)
@@ -331,7 +336,7 @@ class ControllerThread(threading.Thread):
             self.pos[2],
             self.stab_att[2]) +
             'vel: ({}, {}, {}, {})\n'.format(
-            self.vel[1],
+            self.vel[0],
             self.vel[1],
             self.vel[2],
             self.yawrate) +
@@ -401,24 +406,35 @@ class ControllerThread(threading.Thread):
 
 
 def coordinates(control):
-    """ Follow waypoints """
+    """ Follow waypoints set in config.json"""
 
-    time.sleep(2)
-
-
-    control.enable()
-
-    time.sleep(2)
+    for ch in read_input():
+        if ch == 'e':
+            control.enable()
+            break
 
     for n in range(len(control.config['coordinates']['x'])):
-        print(control.config['coordinates']['x'][n])
 
-        control.pos_ref[0] = control.config['coordinates']['x'][n]
-        control.pos_ref[1] = control.config['coordinates']['y'][n]
-        control.pos_ref[2] = control.config['coordinates']['z'][n]
+        x, y, z, yaw = control.config['coordinates']['x'][n], \
+            control.config['coordinates']['y'][n], \
+            control.config['coordinates']['z'][n], \
+            control.config['coordinates']['yaw'][n]
 
-        time.sleep(2)
+        print("Setting reference: ({}, {}, {}, {})".format(
+            x, y, z, yaw
+        ))
 
+        control.pos_ref = [x, y, z]
+        control.yaw_ref = np.radians(yaw)
+
+        # If magniture iof error is small enough
+        while (control.err_mag > 0.05):
+            print(control.err_mag)
+            time.sleep(0.5)
+
+        time.sleep(5)
+
+    control.disable()
 
 def handle_keyboard_input(control):
     pos_step = 0.1  # [m]
@@ -497,6 +513,8 @@ if __name__ == "__main__":
     control = ControllerThread(cf)
     control.start()
 
+
+
     if URI is None:
         print('Scanning for Crazyflies...')
         available = crtp.scan_interfaces()
@@ -512,7 +530,7 @@ if __name__ == "__main__":
     print('Connecting to', URI)
     cf.open_link(URI)
 
-    handle_keyboard_input(control)
-    # coordinates(control)
+    # handle_keyboard_input(control)
+    coordinates(control)
 
     cf.close_link()
