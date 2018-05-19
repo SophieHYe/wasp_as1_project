@@ -6,7 +6,7 @@ import termios
 import logging
 import threading
 import ujson as json
-
+import csv
 import numpy as np
 import transformations as trans
 from cflib import crazyflie, crtp
@@ -74,7 +74,7 @@ class ControllerThread(threading.Thread):
 
         self.cum_height_err = 0
         self.err_mag = 0
-        self.roll_r, self.pitch_r, self.thrust_r = 0, 0, 0
+        self.roll_r, self.pitch_r, self.thrust_r, self.yawrate_r = 0, 0, 0, 0
         self.R = np.eye(3)
 
         # Attitide (roll, pitch, yaw) from stabilizer
@@ -82,6 +82,7 @@ class ControllerThread(threading.Thread):
 
         self.pos_ref = np.r_[self.pos[:2], 1.0]
         self.yaw_ref = 0.0
+        self.pos_ref_initial = self.pos_ref
 
         # This makes Python exit when this is the only thread alive.
         self.daemon = True
@@ -89,6 +90,8 @@ class ControllerThread(threading.Thread):
         self.t0 = time.time()  # To be updated at run()
 
     def read_config(self):
+        """Read config file and store values in class"""
+
         with open('config.json') as config_file:
             self.config = json.load(config_file)
 
@@ -223,6 +226,7 @@ class ControllerThread(threading.Thread):
         self.yaw_ref = 0.0
 
         print('Initial positional reference:', self.pos_ref)
+        self.pos_ref_initial = self.pos_ref
         print('Initial thrust reference:', self.thrust_r)
         print('Ready! Press e to enable motors, h for help and Q to quit')
 
@@ -258,15 +262,16 @@ class ControllerThread(threading.Thread):
         self.fh.flush()
 
     def calc_control_signals(self):
-        # THIS IS WHERE YOU SHOULD PUT YOUR CONTROL CODE
-        # THAT OUTPUTS THE REFERENCE VALUES FOR
-        # ROLL PITCH, YAWRATE AND THRUST
-        # WHICH ARE TAKEN CARE OF BY THE ONBOARD CONTROL LOOPS
+        """ This is the control code that outputs reference values
+        for roll, pitch, yawrate and thrust."""
+
         roll, pitch, yaw = trans.euler_from_quaternion(self.attq)
 
         # Compute control errors in position
         ex, ey, ez = self.pos_ref - self.pos
 
+        # Calculate the magnitude of the error for
+        # coordinate navigation
         self.err_mag = np.linalg.norm([ex, ey, ez])
 
         eyaw = np.degrees(self.yaw_ref) - self.stab_att[2]  # In degrees
@@ -324,7 +329,7 @@ class ControllerThread(threading.Thread):
         self.thrust_r = np.clip(self.thrust_r, *self.thrust_limit)
 
         # This message is constructed too often,
-        # and not printed.
+        # but seldom printed.
         message = ('ref: ({}, {}, {}, {})\n'.format(
             self.pos_ref[0],
             self.pos_ref[1],
@@ -340,7 +345,8 @@ class ControllerThread(threading.Thread):
             self.vel[1],
             self.vel[2],
             self.yawrate) +
-            'error: ({}, {}, {}, {}, {})\n'.format(ex, ey, ez, eyaw, self.cum_height_err) +
+            'error: ({}, {}, {}, {}, {})\n'.format(
+                ex, ey, ez, eyaw, self.cum_height_err) +
             'control: ({}, {}, {}, {})\n'.format(
             self.roll_r,
             self.pitch_r,
@@ -351,8 +357,9 @@ class ControllerThread(threading.Thread):
 
     def print_at_period(self, period, message):
         """ Prints the message at a given period """
+
         if (time.time() - period) > self.last_time_print:
-            self.read_config()  # Also read config again
+            self.read_config()  # Also read configuration file again
             self.last_time_print = time.time()
             print(message)
 
@@ -415,9 +422,16 @@ def coordinates(control):
 
     for n in range(len(control.config['coordinates']['x'])):
 
-        x, y, z, yaw = control.config['coordinates']['x'][n], \
-            control.config['coordinates']['y'][n], \
-            control.config['coordinates']['z'][n], \
+        # x and y can be relative
+        x, y = control.config['coordinates']['x'][n], \
+            control.config['coordinates']['y'][n]
+
+        if control.config['coordinates']['relative']:
+            x += control.pos_ref_initial[0]
+            y += control.pos_ref_initial[1]
+
+        # z and yaw can not be relative
+        z, yaw = control.config['coordinates']['z'][n], \
             control.config['coordinates']['yaw'][n]
 
         print("Setting reference: ({}, {}, {}, {})".format(
@@ -429,12 +443,12 @@ def coordinates(control):
 
         # If magniture iof error is small enough
         while (control.err_mag > 0.05):
-            print(control.err_mag)
             time.sleep(0.5)
 
         time.sleep(5)
 
     control.disable()
+
 
 def handle_keyboard_input(control):
     pos_step = 0.1  # [m]
@@ -512,8 +526,6 @@ if __name__ == "__main__":
     cf = crazyflie.Crazyflie(rw_cache='./cache')
     control = ControllerThread(cf)
     control.start()
-
-
 
     if URI is None:
         print('Scanning for Crazyflies...')
