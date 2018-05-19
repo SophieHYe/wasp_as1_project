@@ -12,6 +12,8 @@ import transformations as trans
 from cflib import crazyflie, crtp
 from cflib.crazyflie.log import LogConfig
 
+from util import *
+
 # Set a channel - if set to None, the first available crazyflie is used
 URI = 'radio://0/98/2M'
 # URI = None
@@ -38,6 +40,7 @@ def read_input(file=sys.stdin):
 class ControllerThread(threading.Thread):
     """This is the controller thread"""
 
+    # Move these to config file.
     period_in_ms = 20       # Control period. [ms]
     thrust_step = 5e3       # Thrust step with W/S. [of 2**16]
     thrust_initial = 0      # Start with zero thrust.
@@ -53,6 +56,7 @@ class ControllerThread(threading.Thread):
         self.cf = cf
 
         self.read_config()
+        self.logger = get_logger("controller")
         # Reset state
         self.disable(stop=False)
 
@@ -96,7 +100,7 @@ class ControllerThread(threading.Thread):
             self.config = json.load(config_file)
 
     def _connected(self, link_uri):
-        print('Connected to', link_uri)
+        self.logger.info('Connected to {}'.format(link_uri))
 
         log_stab_att = LogConfig(
             name='Stabilizer', period_in_ms=self.period_in_ms)
@@ -156,13 +160,13 @@ class ControllerThread(threading.Thread):
                                'get any position data.')
 
     def _connection_failed(self, link_uri, msg):
-        print('Connection to %s failed: %s' % (link_uri, msg))
+        self.logger.error('Connection to %s failed: %s' % (link_uri, msg))
 
     def _connection_lost(self, link_uri, msg):
-        print('Connection to %s lost: %s' % (link_uri, msg))
+        self.logger.error('Connection to %s lost: %s' % (link_uri, msg))
 
     def _disconnected(self, link_uri):
-        print('Disconnected from %s' % link_uri)
+        self.logger.info('Disconnected from %s' % link_uri)
 
     def _log_data_stab_att(self, timestamp, data, logconf):
         """Log function for stabilizer data"""
@@ -196,7 +200,7 @@ class ControllerThread(threading.Thread):
         # r, p, y = trans.euler_from_quaternion(self.attq)
 
     def _log_error(self, logconf, msg):
-        print('Error when logging %s: %s' % (logconf.name, msg))
+        self.logger.error('Error when logging %s: %s' % (logconf.name, msg))
 
     def make_position_sanity_check(self):
         # We assume that the position from the LPS should be
@@ -215,7 +219,7 @@ class ControllerThread(threading.Thread):
         while not self.cf.is_connected():
             time.sleep(0.2)
 
-        print('Waiting for position estimate to be good enough...')
+        self.logger.debug('Waiting for position estimate to be good enough...')
         self.reset_estimator()
 
         self.make_position_sanity_check()
@@ -225,10 +229,12 @@ class ControllerThread(threading.Thread):
         self.pos_ref = np.r_[self.pos[:2], 1.0]
         self.yaw_ref = 0.0
 
-        print('Initial positional reference:', self.pos_ref)
+        self.logger.debug('Initial positional reference: {}'.format(
+            self.pos_ref))
         self.pos_ref_initial = self.pos_ref
-        print('Initial thrust reference:', self.thrust_r)
-        print('Ready! Press e to enable motors, h for help and Q to quit')
+        self.logger.debug('Initial thrust reference: {}'.format(self.thrust_r))
+        self.logger.info('Ready! Press e to enable motors,' +
+                         'h for help and Q to quit')
 
         self.t0 = time.time()
 
@@ -361,7 +367,7 @@ class ControllerThread(threading.Thread):
         if (time.time() - period) > self.last_time_print:
             self.read_config()  # Also read configuration file again
             self.last_time_print = time.time()
-            print(message)
+            self.logger.debug(message)
 
     def reset_estimator(self):
         self.cf.param.set_value('kalman.resetEstimation', '1')
@@ -378,7 +384,7 @@ class ControllerThread(threading.Thread):
         if stop:
             self.send_setpoint(0.0, 0.0, 0.0, 0)
         if self.enabled:
-            print('Disabling controller')
+            self.logger.info('Disabling controller')
         self.enabled = False
         self.roll_r = 0.0
         self.pitch_r = 0.0
@@ -387,7 +393,7 @@ class ControllerThread(threading.Thread):
 
     def enable(self):
         if not self.enabled:
-            print('Enabling controller')
+            self.logger.info('Enabling controller')
 
         # Need to send a zero setpoint to unlock the controller.
         self.send_setpoint(0.0, 0.0, 0.0, 0)
@@ -400,8 +406,8 @@ class ControllerThread(threading.Thread):
         if delta_time > 0:
             time.sleep(delta_time)
         else:
-            print('Deadline missed by', -delta_time, 'seconds. '
-                  'Too slow control loop!')
+            self.logger.warning('Deadline missed by', -delta_time, 'seconds. '
+                                'Too slow control loop!')
 
     def increase_thrust(self):
         self.thrust_r += self.thrust_step
@@ -415,12 +421,15 @@ class ControllerThread(threading.Thread):
 def coordinates(control):
     """ Follow waypoints set in config.json"""
 
+    logger = get_logger("coordinates")
+
     for ch in read_input():
         if ch == 'e':
             control.enable()
             break
 
     for n in range(len(control.config['coordinates']['x'])):
+
 
         # x and y can be relative
         x, y = control.config['coordinates']['x'][n], \
@@ -434,7 +443,7 @@ def coordinates(control):
         z, yaw = control.config['coordinates']['z'][n], \
             control.config['coordinates']['yaw'][n]
 
-        print("Setting reference: ({}, {}, {}, {})".format(
+        logger.info("Setting reference: ({}, {}, {}, {})".format(
             x, y, z, yaw
         ))
 
@@ -442,7 +451,7 @@ def coordinates(control):
         control.yaw_ref = np.radians(yaw)
 
         # If magniture iof error is small enough
-        while (control.err_mag > 0.05):
+        while (control.err_mag > control.config["waypoint_margin"]):
             time.sleep(0.5)
 
         time.sleep(5)
@@ -520,26 +529,27 @@ def handle_keyboard_input(control):
 
 
 if __name__ == "__main__":
-    logging.basicConfig()
+
+    # logging.basicConfig()
 
     crtp.init_drivers(enable_debug_driver=False)
     cf = crazyflie.Crazyflie(rw_cache='./cache')
     control = ControllerThread(cf)
     control.start()
-
+    logger = get_logger("main")
     if URI is None:
-        print('Scanning for Crazyflies...')
+        logger.info('Scanning for Crazyflies...')
         available = crtp.scan_interfaces()
         if available:
-            print('Found Crazyflies:')
+            logger.info('Found Crazyflies:')
             for i in available:
-                print('-', i[0])
+                logger.info('- {}'.format(i[0]))
             URI = available[0][0]
         else:
-            print('No Crazyflies found!')
+            logger.error('No Crazyflies found!')
             sys.exit(1)
 
-    print('Connecting to', URI)
+    logger.info('Connecting to {}'.format(URI))
     cf.open_link(URI)
 
     # handle_keyboard_input(control)
