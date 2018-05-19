@@ -47,7 +47,7 @@ Unplug the radio and plug it in again and it should be recognized
 
 PID-controller parameters and coordinates are set in `config.json`. Coordinates can be relative (to starting position) or absolute.
 
-![orientation](https://wiki.bitcraze.io/_detail/doc:lps:crazyflie_isometric_drawing_2.png?id=doc%3Alps%3Astarting-position) 
+![orientation](https://wiki.bitcraze.io/_media/doc:lps:crazyflie_isometric_drawing_2.png) 
 
 ~~~~
 {
