@@ -15,7 +15,7 @@ from cflib.crazyflie.log import LogConfig
 from util import *
 
 # Set a channel - if set to None, the first available crazyflie is used
-URI = 'radio://0/98/2M'
+URI = 'radio://0/91/2M'
 # URI = None
 
 
@@ -44,7 +44,7 @@ class ControllerThread(threading.Thread):
     period_in_ms = 20       # Control period. [ms]
     thrust_step = 5e3       # Thrust step with W/S. [of 2**16]
     thrust_initial = 0      # Start with zero thrust.
-    thrust_limit = (0, 2**16 - 1)
+    thrust_limit = (0, .8 * 2**16 - 1)
     roll_limit = (-30.0, 30.0)
     pitch_limit = (-30.0, 30.0)
     yaw_limit = (-200.0, 200.0)
@@ -167,6 +167,7 @@ class ControllerThread(threading.Thread):
 
     def _disconnected(self, link_uri):
         self.logger.info('Disconnected from %s' % link_uri)
+        self.logger.info('Flight log: {}'.format(self.log_file_name))
 
     def _log_data_stab_att(self, timestamp, data, logconf):
         """Log function for stabilizer data"""
@@ -215,7 +216,7 @@ class ControllerThread(threading.Thread):
         self.log_file_name = 'flightlog_' + \
             time.strftime("%Y%m%d_%H%M%S") + '.csv'
         self.fh = open(self.log_file_name, 'w')
-
+        self.logger.info("Flight log: {}".format(self.log_file_name))
         while not self.cf.is_connected():
             time.sleep(0.2)
 
@@ -359,7 +360,7 @@ class ControllerThread(threading.Thread):
             self.thrust_r,
             self.yawrate_r,))
 
-        self.print_at_period(2.0, message)
+        self.print_at_period(.5, message)
 
     def print_at_period(self, period, message):
         """ Prints the message at a given period """
@@ -552,7 +553,7 @@ if __name__ == "__main__":
     logger.info('Connecting to {}'.format(URI))
     cf.open_link(URI)
 
-    # handle_keyboard_input(control)
-    coordinates(control)
+    handle_keyboard_input(control)
+    # coordinates(control)
 
     cf.close_link()
