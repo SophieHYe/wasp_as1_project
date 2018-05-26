@@ -16,6 +16,13 @@ Make sure that you have python3 and pip3 installed. On a Ubuntu system you would
 ```
 sudo apt-get install python3 python3-pip python3-pyqt5 python3-pyqt5.qtsvg
 ```
+
+or on OS X
+
+```
+brew install python3 sdl sdl2 sdl_image sdl_mixer sdl_ttf libusb portmidi pyqt5
+```
+
 Then install the bitcraze (and other) dependencies
 ```sh
 pip3 install -r requirements.txt
@@ -26,20 +33,11 @@ pip3 install -r requirements.txt
 ```sh
 python3 cf_pc_control.py
 ```
-## Python 2
-### Dependencies
-```sh
-pip install -r requirements.txt
-```
-
-### Run
-
-```sh
-python cf_pc_control.py
-```
 
 ## Crazyradio PA USB Dongle
+
 If you run on Linux and you system is not recognizing the USB radio dongle you probably want to do
+
 ```
 sudo groupadd plugdev
 sudo usermod -a -G plugdev $USER
@@ -48,6 +46,7 @@ echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", MODE=
 sudo udevadm control --reload-rules
 sudo service udev restart
 ```
+
 Unplug the radio and plug it in again and it should be recognized
 
 # Flying
@@ -80,4 +79,8 @@ PID-controller parameters and coordinates are set in `config.json`. Coordinates 
     "waypoint_margin": 0.05
 }
 ```
+
+The configuration is read everytime the log is printed to the screen so that you can adjust the parameters while flying.
+
+This code is tested with [Flowdeck](https://www.bitcraze.io/flow-deck/) and [LPS](https://www.bitcraze.io/loco-pos-system/).
 
