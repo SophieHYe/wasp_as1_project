@@ -2,7 +2,7 @@
 
 Code from KTH group B for the WASP Autonomous Systems 1 project using Crazyflies.
 
-![cf2](crazyflie-2.png)
+![cf2](crazyflie-2.jpg)
 
 In what is described below it is assumed that you have clone this repository and entered the directory.
 
